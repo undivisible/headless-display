@@ -5,7 +5,7 @@ Objective-C++, with offline Kokoro `am_adam` speech.
 
 Press **Control–Option–Command–M** to hear the receivers macOS currently finds:
 
-> Available displays. 1. vision. 2. brick. 3. cp.
+> Available displays. 1. Headset. 2. Tablet. 3. Living Room TV.
 > Press a number to connect. Zero repeats the list. Escape cancels.
 
 The names above are examples. The actual list comes from your Mac.
@@ -76,9 +76,11 @@ rm "$HOME/Library/LaunchAgents/io.github.undivisible.headless-display.plist"
 - **Vision Pro uses AirPlay mirroring**, not the separate curved or ultrawide Mac
   Virtual Display mode.
 
-The spoken list includes up to nine receivers. Example names `vision`, `brick`,
-and `cp` sort first in that order; other names sort alphabetically. Edit the
-`priority` array in `availableNames()` to change this preference.
+The spoken list includes up to nine receivers, ordered by device type:
+**Vision Pro → iPads → TVs → Macs**. Names sort alphabetically within each
+type. Classification uses Sidecar model metadata and AirPlay Bonjour TXT
+records, never personal device names. Receivers whose type cannot be identified
+appear last. Local Network access may be requested for Bonjour discovery.
 
 Private APIs and macOS Accessibility structure can change after OS updates.
 Devices must be awake and discoverable. Network/account requirements remain

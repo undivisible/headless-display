@@ -1,0 +1,2 @@
+# Keep build/install helpers out of GitHub language statistics.
+*.sh linguist-detectable=false
