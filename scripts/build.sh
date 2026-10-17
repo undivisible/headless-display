@@ -10,8 +10,10 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resourc
 cp resources/Info.plist "$app/Contents/Info.plist"
 cp deps/sherpa/lib/libsherpa-onnx-c-api.dylib deps/sherpa/lib/libonnxruntime.dylib "$app/Contents/Frameworks/"
 ditto deps/kokoro "$app/Contents/Resources/kokoro"
-cp THIRD_PARTY.md "$app/Contents/Resources/third-party/"
-xcrun clang++ -std=c++17 -O2 -Wall -Wextra -fobjc-arc -fblocks \
+python3 scripts/bundle-notices.py
+cp LICENSE THIRD_PARTY.md "$app/Contents/Resources/third-party/"
+ditto deps/licenses "$app/Contents/Resources/third-party/licenses"
+xcrun clang++ -mmacosx-version-min=14.0 -std=c++17 -O2 -Wall -Wextra -fobjc-arc -fblocks \
   -framework AppKit -framework ApplicationServices -framework AVFoundation \
   -framework Carbon -framework CoreGraphics -Ideps/sherpa/include \
   src/headless-display.mm -L"$app/Contents/Frameworks" -lsherpa-onnx-c-api \

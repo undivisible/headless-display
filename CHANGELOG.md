@@ -2,7 +2,7 @@
 
 ## 0.1.0
 
-Initial source release for Apple Silicon Macs running macOS 14 or later.
+Initial release for Apple Silicon Macs running macOS 14 or later.
 
 - Spoken screen-mirroring chooser with local Kokoro `am_adam` speech.
 - Control–Option–Command–M opens the chooser; number keys select a receiver.
@@ -17,5 +17,6 @@ this release uses ordinary AirPlay for Vision Pro. The private APIs may change
 between macOS versions. Native iPad disconnect/reconnect and offline speech were
 tested locally; other receiver combinations have not all been verified.
 
-Build from source using the instructions in README.md. This release does not
-include a prebuilt app; fetched dependencies retain their upstream licenses.
+Prebuilt Apple Silicon app ZIPs, checksums, dependency licenses and source archives
+are published by GitHub Actions. Source build instructions are in README.md.
+Fetched dependencies retain their upstream licenses.

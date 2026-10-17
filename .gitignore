@@ -3,3 +3,7 @@
 /deps/
 *.log
 *.wav
+
+/dist/
+
+__pycache__/

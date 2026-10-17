@@ -31,6 +31,13 @@ The names above are examples. The actual list comes from your Mac.
 The app runs after login, including without a working built-in screen. It cannot
 operate at the FileVault unlock screen.
 
+## Download
+
+Download [Headless Display 0.1.0 for Apple Silicon](https://github.com/undivisible/headless-display/releases/download/v0.1.0/Headless-Display-0.1.0-macos-arm64.zip), unzip it, and move **Headless Display.app** to Applications.
+The ZIP includes the offline speech runtime and model. The app is ad-hoc signed,
+not Developer ID signed or notarized. Checksums and dependency source archives
+are attached to the same release.
+
 ## Build and run
 
 ```sh
@@ -117,3 +124,14 @@ bundle signature verification. Other receiver models have not been tested.
 
 Original source: [ISC](LICENSE). Downloaded dependencies retain their own
 licenses; see [THIRD_PARTY.md](THIRD_PARTY.md).
+
+## Continuous integration and releases
+
+GitHub Actions builds on an Apple Silicon macOS runner for pushes to main and
+pull requests. It checks the app signature, receiver ordering, and offline speech,
+then uploads a packaged app and source archives as workflow artifacts.
+
+Pushing a `v*` tag uploads those assets to its GitHub release. The workflow can
+also be run manually with an existing release tag; it verifies that the runtime
+source and version match that tag before uploading. CI cannot exercise nearby
+physical receivers or global keyboard shortcuts.

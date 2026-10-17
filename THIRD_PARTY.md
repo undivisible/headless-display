@@ -13,9 +13,23 @@ They are not committed to this repository.
   `am_adam` (speaker ID 11). Its model LICENSE remains in the app resources.
 - [eSpeak NG](https://github.com/espeak-ng/espeak-ng): GPL-3.0-or-later.
   Phonemizer data is included in the upstream Kokoro package. The sherpa-onnx
-  runtime also uses eSpeak NG; check its distribution requirements before
-  redistributing compiled bundles.
+  runtime also uses eSpeak NG. Binary distributions include its GPL license and
+  a companion source archive. The combined distribution must respect GPL-3.0-or-later;
+  the original helper source remains available under ISC.
 
 The dependency installer pins both downloaded archives by SHA-256. It downloads
 from the official sherpa-onnx GitHub releases over HTTPS. Model files and native
 libraries are fetched locally rather than relicensed as ISC.
+
+Release ZIPs preserve upstream licenses and notices under
+`Headless Display.app/Contents/Resources/third-party/`. The companion sources
+archive contains this repository and the pinned sherpa-onnx, eSpeak NG,
+piper-phonemize and supporting native-library sources. `resources/release-deps.json`
+records the archive URLs and SHA-256 hashes. ONNX Runtime is dynamically linked;
+its MIT license and third-party notices are bundled separately. Kokoro weights,
+voice embeddings and phonemizer data remain in the app resources.
+
+The sherpa-onnx source archive includes its macOS build workflow and CMake recipes.
+Extract the dependency archives alongside that source and follow those recipes
+when modifying the runtime. The app's `scripts/fetch-deps.sh` fetches the pinned
+prebuilt runtime for the ordinary app build.

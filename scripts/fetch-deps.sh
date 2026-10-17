@@ -19,4 +19,5 @@ if [[ ! -f deps/kokoro/model.int8.onnx ]]; then
   fetch 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2' \
     4c3052abaa60943a341f193888cf6abd68787dae6ab8ae5c925a706caa247e4e deps/kokoro
 fi
+python3 scripts/fetch-release-deps.py
 print 'Dependencies ready.'
