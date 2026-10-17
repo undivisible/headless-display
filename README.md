@@ -12,7 +12,10 @@ The names above are examples. The actual list comes from your Mac.
 
 - **1–9** selects an announced device.
 - **0** rescans and repeats the list.
-- **Escape** cancels.
+- **Escape** cancels the chooser.
+- **Control–Option–Command–D** disconnects the active display and speaks confirmation.
+  The Displays menu also has **Disconnect display**. iPad/native Sidecar sessions
+  use the private API; ordinary AirPlay uses the existing Accessibility bridge.
 - Number keys are captured only while choosing. They are released on selection,
   cancellation, or after 30 seconds of inactivity following the announcement.
 - A Displays menu provides the chooser and an optional preferred-device action.
@@ -94,6 +97,7 @@ With the app running:
 bin='build/Headless Display.app/Contents/MacOS/headless-display'
 "$bin" --choose
 "$bin" --cancel
+"$bin" --disconnect
 "$bin" --devices
 "$bin" --connect 'your receiver name'
 ```

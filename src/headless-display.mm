@@ -24,6 +24,7 @@
 - (BOOL)isRealityDevice;
 - (id)configForDevice:(id)device;
 - (id)displayID;
+- (void)disconnectFromDevice:(id)device completion:(void (^)(NSError *))completion;
 - (void)connectToDevice:(id)device completion:(void (^)(NSError *))completion;
 @end
 static id manager;
@@ -170,35 +171,62 @@ static BOOL connectChoice(NSString *choice){
  }@catch(NSException *e){speak([@"Display API error: " stringByAppendingString:e.reason?:@"unknown error"]);}
  busy=NO;return NO;
 }
+static BOOL disconnectDisplays(void){
+ if(busy){speak(@"A display operation is in progress. Try again when it finishes.");return NO;}
+ busy=YES;BOOL ok=YES;
+ @try{
+  NSArray *devices=[[manager connectedDevices]copy]?:@[];
+  if(devices.count){
+   if(![manager respondsToSelector:@selector(disconnectFromDevice:completion:)]){speak(@"This macOS version does not expose the native disconnect command.");return NO;}
+   for(id device in devices){
+    __block BOOL done=NO;__block NSError *failure=nil;
+    [manager disconnectFromDevice:device completion:^(NSError *error){failure=error;done=YES;}];
+    NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:15];while(!done&&deadline.timeIntervalSinceNow>0)pump(.1);
+    if(!done){speak(@"Disconnect timed out. I could not confirm that mirroring stopped.");return NO;}
+    if(failure){speak([@"Disconnect failed. " stringByAppendingString:failure.localizedDescription?:@"Unknown error."]);ok=NO;continue;}
+    deadline=[NSDate dateWithTimeIntervalSinceNow:5];while(connected(device)&&deadline.timeIntervalSinceNow>0)pump(.1);
+    if(connected(device)){speak(@"The display still reports a connection.");ok=NO;}
+   }
+   if(ok)speak(@"Display disconnected.");return ok;
+  }
+  return disconnectAirplay();
+ }@catch(NSException *exception){speak([@"Disconnect failed. " stringByAppendingString:exception.reason?:@"Unknown error."]);return NO;}
+ @finally{busy=NO;}
+}
 @interface DisplayApp : NSObject <NSApplicationDelegate>
 @property NSStatusItem *item;
 @property EventHotKeyRef hotkey;
+@property EventHotKeyRef disconnectHotkey;
 @property NSArray<NSString*> *choices;
 @property NSMutableArray<NSValue*> *choiceKeys;
 @property NSTimer *pickerTimer;
 @property NSDate *pickerDeadline;
 @property BOOL choosing;
 - (void)showPicker;
+- (void)disconnectDisplay;
 - (void)chooseNumber:(NSUInteger)number;
 - (void)cancelPicker:(BOOL)announce;
 @end
 static DisplayApp *runningApp;
 static OSStatus hotkeyHandler(EventHandlerCallRef,EventRef event,void*){
  EventHotKeyID key={};GetEventParameter(event,kEventParamDirectObject,typeEventHotKeyID,nullptr,sizeof(key),nullptr,&key);
- dispatch_async(dispatch_get_main_queue(),^{if(key.signature=='HdDs')[runningApp showPicker];else if(key.signature=='HdPk'){if(key.id==99)[runningApp cancelPicker:YES];else if(key.id==0)[runningApp showPicker];else [runningApp chooseNumber:key.id];}});return noErr;
+ dispatch_async(dispatch_get_main_queue(),^{if(key.signature=='HdDs'){if(key.id==2)[runningApp disconnectDisplay];else [runningApp showPicker];}else if(key.signature=='HdPk'){if(key.id==99)[runningApp cancelPicker:YES];else if(key.id==0)[runningApp showPicker];else [runningApp chooseNumber:key.id];}});return noErr;
 }
 @implementation DisplayApp
 - (void)applicationDidFinishLaunching:(NSNotification *)note{
  runningApp=self;self.item=[NSStatusBar.systemStatusBar statusItemWithLength:NSVariableStatusItemLength];self.item.button.title=@"Displays";
  NSMenu *menu=[NSMenu new];
- for(NSArray *row in @[@[@"Choose a display…",@"choose"],@[@"Auto-connect preferred display",@"auto"],@[@"Enable full device discovery…",@"permission"],@[@"Quit",@"quit"]]){
+ for(NSArray *row in @[@[@"Choose a display…",@"choose"],@[@"Auto-connect preferred display",@"auto"],@[@"Disconnect display",@"disconnect"],@[@"Enable full device discovery…",@"permission"],@[@"Quit",@"quit"]]){
  NSMenuItem *item=[[NSMenuItem alloc]initWithTitle:row[0] action:@selector(chosen:) keyEquivalent:@""];item.target=self;item.representedObject=row[1];[menu addItem:item];}self.item.menu=menu;
  EventTypeSpec spec={kEventClassKeyboard,kEventHotKeyPressed};InstallApplicationEventHandler(hotkeyHandler,1,&spec,nullptr,nullptr);
  EventHotKeyID key={'HdDs',1};EventHotKeyRef ref=nullptr;OSStatus err=RegisterEventHotKey(kVK_ANSI_M,controlKey|optionKey|cmdKey,key,GetApplicationEventTarget(),0,&ref);self.hotkey=ref;
+ EventHotKeyID stopKey={'HdDs',2};EventHotKeyRef stopRef=nullptr;OSStatus stopError=RegisterEventHotKey(kVK_ANSI_D,controlKey|optionKey|cmdKey,stopKey,GetApplicationEventTarget(),0,&stopRef);self.disconnectHotkey=stopRef;
+ if(stopError!=noErr)fprintf(stderr,"Disconnect hotkey unavailable: %d\n",(int)stopError);
  [NSDistributedNotificationCenter.defaultCenter addObserver:self selector:@selector(requestChooser:) name:@"local.headless-display.choose" object:nil];
  [NSDistributedNotificationCenter.defaultCenter addObserver:self selector:@selector(cancelRequest:) name:@"local.headless-display.cancel" object:nil];
- if(err!=noErr)speak(@"The display hotkey is in use. Use the Displays menu.");else speak(@"Display chooser ready. Press Control Option Command M to hear available displays.");
+ if(err!=noErr)speak(@"The display hotkey is in use. Use the Displays menu.");else speak(stopError==noErr?@"Display chooser ready. Control Option Command M chooses a display. Control Option Command D disconnects.":@"Display chooser ready. The disconnect hotkey is in use. Use the Displays menu to disconnect.");
 }
+- (void)disconnectDisplay{[self cancelPicker:NO];disconnectDisplays();}
 - (void)requestChooser:(NSNotification*)note{[self showPicker];}
 - (void)cancelRequest:(NSNotification*)note{[self cancelPicker:YES];}
 - (void)cancelPicker:(BOOL)announce{
@@ -236,6 +264,7 @@ static OSStatus hotkeyHandler(EventHandlerCallRef,EventRef event,void*){
 - (void)chosen:(NSMenuItem*)item{
  NSString *choice=item.representedObject;
  if([choice isEqual:@"quit"]){[self cancelPicker:NO];[NSApp terminate:nil];return;}
+ if([choice isEqual:@"disconnect"]){[self disconnectDisplay];return;}
  if([choice isEqual:@"permission"]){AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)@{(__bridge NSString*)kAXTrustedCheckOptionPrompt:@YES});[NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"]];return;}
  if([choice isEqual:@"choose"]){[self showPicker];return;}[self cancelPicker:NO];connectChoice(@"auto");
 }
@@ -246,6 +275,7 @@ int main(int argc,const char **argv){@autoreleasepool{
  for(NSString *s in @[@"devices",@"connectedDevices",@"connectToDevice:completion:",@"configForDevice:"])if(![manager respondsToSelector:NSSelectorFromString(s)]){fprintf(stderr,"Unsupported SidecarCore API\n");return 2;}
  NSString *command=argc>1?@(argv[1]):@"--agent";
  if([command isEqual:@"--list"]){pump(2);NSMutableArray *rows=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];NSArray *all=[[manager devices]arrayByAddingObjectsFromArray:[manager connectedDevices]?:@[]];for(id d in all){if([seen containsObject:identity(d)])continue;[seen addObject:identity(d)];id cfg=[manager configForDevice:d];[rows addObject:@{@"name":[d name]?:@"",@"identifier":identity(d)?:@"",@"connected":@(connected(d)),@"displayID":[cfg displayID]?:@0}];}NSData *json=[NSJSONSerialization dataWithJSONObject:rows options:NSJSONWritingPrettyPrinted error:nil];puts([[NSString alloc]initWithData:json encoding:NSUTF8StringEncoding].UTF8String);return 0;}
+ if([command isEqual:@"--disconnect"]){[NSApplication sharedApplication];BOOL ok=disconnectDisplays();NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:45];while((speechPending||voicePlayer.isPlaying)&&deadline.timeIntervalSinceNow>0)pump(.05);return ok?0:1;}
  if([command isEqual:@"--native-vision"]){
   [NSApplication sharedApplication];id headset=nil;NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:25];
   do{for(id d in nativeDevices(YES))if(isNativeHeadset(d)){headset=d;break;}if(headset)break;pump(1);}while(deadline.timeIntervalSinceNow>0);
@@ -260,7 +290,7 @@ int main(int argc,const char **argv){@autoreleasepool{
  if([command isEqual:@"--connect"]){if(argc!=3)return 2;[NSApplication sharedApplication];NSString *name=@(argv[2]);id d=find(name);BOOL ok=d?attempt(d):connectAirplay(name);while(speechPending||voicePlayer.isPlaying)pump(.05);return ok?0:1;}
  if([command isEqual:@"--render"]){if(argc!=4){fprintf(stderr,"--render TEXT OUTPUT.wav\n");return 2;}return renderSpeech(@(argv[2]),@(argv[3]))?0:1;}
  if([command isEqual:@"--speak"]){if(argc!=3)return 2;speak(@(argv[2]));while(speechPending||voicePlayer.isPlaying)pump(.05);return voicePlayer?0:1;}
- if(![command isEqual:@"--agent"]){NSString *choice=[command isEqual:@"--vision-pro"]?@"headset":[command isEqual:@"--ipad"]?@"tablet":[command isEqual:@"--auto"]?@"auto":nil;if(!choice){fprintf(stderr,"Usage: headless-display --agent | --list | --auto | --vision-pro | --ipad\n");return 2;}BOOL ok=connectChoice(choice);NSDate *speechEnd=[NSDate dateWithTimeIntervalSinceNow:45];while((speechPending||voicePlayer.isPlaying)&&speechEnd.timeIntervalSinceNow>0)pump(.05);return ok?0:1;}
+ if(![command isEqual:@"--agent"]){NSString *choice=[command isEqual:@"--vision-pro"]?@"headset":[command isEqual:@"--ipad"]?@"tablet":[command isEqual:@"--auto"]?@"auto":nil;if(!choice){fprintf(stderr,"Usage: headless-display --agent | --list | --auto | --vision-pro | --ipad | --disconnect | --native-vision\n");return 2;}BOOL ok=connectChoice(choice);NSDate *speechEnd=[NSDate dateWithTimeIntervalSinceNow:45];while((speechPending||voicePlayer.isPlaying)&&speechEnd.timeIntervalSinceNow>0)pump(.05);return ok?0:1;}
  NSString *lock=[NSTemporaryDirectory()stringByAppendingPathComponent:@"local.headless-display.lock"];int fd=open(lock.fileSystemRepresentation,O_CREAT|O_RDWR,0600);if(fd<0||flock(fd,LOCK_EX|LOCK_NB)!=0){fprintf(stderr,"Display helper is already running\n");return 0;}
  NSApplication *app=[NSApplication sharedApplication];[app setActivationPolicy:NSApplicationActivationPolicyAccessory];DisplayApp *delegate=[DisplayApp new];app.delegate=delegate;[app run];close(fd);
 }}
