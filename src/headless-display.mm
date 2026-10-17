@@ -15,6 +15,7 @@
 
 @interface NSObject (SidecarRuntime)
 + (id)sharedManager;
++ (NSArray *)allDevicesByForcingFetchFromRelay:(BOOL)refresh;
 - (NSArray *)devices;
 - (NSArray *)connectedDevices;
 - (id)identifier;
@@ -87,7 +88,23 @@ static void pump(double seconds){NSDate *until=[NSDate dateWithTimeIntervalSince
 #include "native/display-accessibility.h"
 static NSString *identity(id d){return [[d identifier] description];}
 static BOOL connected(id d){for(id c in [manager connectedDevices])if([identity(c) isEqual:identity(d)])return YES;return NO;}
-static id find(NSString *name){NSMutableArray *all=[[manager devices] mutableCopy]?:[NSMutableArray array];[all addObjectsFromArray:[manager connectedDevices]?:@[]];for(id d in all)if([[d name] caseInsensitiveCompare:name]==NSOrderedSame)return d;return nil;}
+static BOOL isNativeHeadset(id device){return [device respondsToSelector:@selector(isRealityDevice)]&&[device isRealityDevice];}
+static NSArray *nativeDevices(BOOL refresh){
+ NSMutableArray *all=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
+ NSArray *groups=@[[manager devices]?:@[],[manager connectedDevices]?:@[]];
+ for(NSArray *group in groups)for(id d in group){NSString *key=identity(d);if(key.length&&![seen containsObject:key]){[seen addObject:key];[all addObject:d];}}
+ Class deviceClass=NSClassFromString(@"SidecarDevice");
+ if([deviceClass respondsToSelector:@selector(allDevicesByForcingFetchFromRelay:)]){
+  // The relay may know a reality device before the display manager refreshes.
+  for(id d in [deviceClass allDevicesByForcingFetchFromRelay:refresh]){NSString *key=identity(d);if(isNativeHeadset(d)&&key.length&&![seen containsObject:key]){[seen addObject:key];[all addObject:d];}}
+ }
+ return all;
+}
+static id find(NSString *name){for(id d in nativeDevices(NO))if([[d name]caseInsensitiveCompare:name]==NSOrderedSame)return d;return nil;}
+static BOOL nativeDisplayOnline(id device){
+ id cfg=[manager configForDevice:device];if(![cfg respondsToSelector:@selector(displayID)])return NO;
+ id number=[cfg displayID];return [number isKindOfClass:NSNumber.class]&&[number unsignedIntValue]&&CGDisplayIsOnline([number unsignedIntValue]);
+}
 static BOOL mirror(id device){
  id cfg=[manager configForDevice:device]; if(![cfg respondsToSelector:@selector(displayID)])return NO;
  NSNumber *number=[cfg displayID]; if(![number isKindOfClass:NSNumber.class])return NO;
@@ -102,6 +119,7 @@ static BOOL mirror(id device){
 }
 static BOOL attempt(id d){
  NSString *label=[d name]?:@"Display";
+ if(connected(d)&&isNativeHeadset(d)){BOOL online=nativeDisplayOnline(d);speak(online?@"Mac Virtual Display is already connected.":@"The native session exists, but its display is not online yet.");return online;}
  if(connected(d)){BOOL mirrored=mirror(d);speak([NSString stringWithFormat:@"%@ is connected.%@",label,mirrored?@"":@" I could not verify its mirror configuration."]);return YES;}
  speak([NSString stringWithFormat:@"Connecting to %@.",label]);
  __block BOOL done=NO;__block NSError *failure=nil;
@@ -111,6 +129,10 @@ static BOOL attempt(id d){
  if(failure){speak([NSString stringWithFormat:@"%@ connection failed: %@",label,failure.localizedDescription]);return NO;}
  deadline=[NSDate dateWithTimeIntervalSinceNow:5];while(!connected(d)&&deadline.timeIntervalSinceNow>0)pump(.2);
  if(!connected(d)){speak([NSString stringWithFormat:@"%@ did not confirm a connection.",label]);return NO;}
+ if(isNativeHeadset(d)){
+  deadline=[NSDate dateWithTimeIntervalSinceNow:10];while(!nativeDisplayOnline(d)&&deadline.timeIntervalSinceNow>0)pump(.2);
+  BOOL online=nativeDisplayOnline(d);speak(online?@"Mac Virtual Display connected.":@"The native session started, but its display did not come online.");return online;
+ }
  BOOL mirrored=mirror(d);speak([NSString stringWithFormat:@"%@ connected.%@",label,mirrored?@"":@" I could not verify its mirror configuration."]);return YES;
 }
 static NSArray<NSDictionary*> *availableReceivers(void){
@@ -118,7 +140,7 @@ static NSArray<NSDictionary*> *availableReceivers(void){
  NSNetServiceBrowser *browser=[NSNetServiceBrowser new];browser.delegate=observer;browser.includesPeerToPeer=YES;
  [browser searchForServicesOfType:@"_airplay._tcp." inDomain:@"local."];
  NSMutableDictionary<NSString*,NSDictionary*> *records=[NSMutableDictionary dictionary];
- NSArray *sidecar=[[manager devices]arrayByAddingObjectsFromArray:[manager connectedDevices]?:@[]];
+ NSArray *sidecar=nativeDevices(NO);
  for(id d in sidecar){
   NSString *name=[d name];if(!name.length)continue;
   NSString *model=[d respondsToSelector:@selector(model)]?[d model]:@"";
@@ -224,6 +246,12 @@ int main(int argc,const char **argv){@autoreleasepool{
  for(NSString *s in @[@"devices",@"connectedDevices",@"connectToDevice:completion:",@"configForDevice:"])if(![manager respondsToSelector:NSSelectorFromString(s)]){fprintf(stderr,"Unsupported SidecarCore API\n");return 2;}
  NSString *command=argc>1?@(argv[1]):@"--agent";
  if([command isEqual:@"--list"]){pump(2);NSMutableArray *rows=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];NSArray *all=[[manager devices]arrayByAddingObjectsFromArray:[manager connectedDevices]?:@[]];for(id d in all){if([seen containsObject:identity(d)])continue;[seen addObject:identity(d)];id cfg=[manager configForDevice:d];[rows addObject:@{@"name":[d name]?:@"",@"identifier":identity(d)?:@"",@"connected":@(connected(d)),@"displayID":[cfg displayID]?:@0}];}NSData *json=[NSJSONSerialization dataWithJSONObject:rows options:NSJSONWritingPrettyPrinted error:nil];puts([[NSString alloc]initWithData:json encoding:NSUTF8StringEncoding].UTF8String);return 0;}
+ if([command isEqual:@"--native-vision"]){
+  [NSApplication sharedApplication];id headset=nil;NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:25];
+  do{for(id d in nativeDevices(YES))if(isNativeHeadset(d)){headset=d;break;}if(headset)break;pump(1);}while(deadline.timeIntervalSinceNow>0);
+  if(!headset){fprintf(stderr,"No native Vision Pro record was supplied by SidecarRelay. AirPlay discovery is separate; no connection was attempted.\n");return 4;}
+  BOOL ok=attempt(headset);while(speechPending||voicePlayer.isPlaying)pump(.05);return ok?0:1;
+ }
  if([command isEqual:@"--request-access"]){[NSApplication sharedApplication];BOOL trusted=AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)@{(__bridge NSString*)kAXTrustedCheckOptionPrompt:@YES});printf("Accessibility: %s\n",trusted?"enabled":"awaiting approval");return trusted?0:3;}
  if([command isEqual:@"--cancel"]){[NSDistributedNotificationCenter.defaultCenter postNotificationName:@"local.headless-display.cancel" object:nil userInfo:nil deliverImmediately:YES];return 0;}
  if([command isEqual:@"--choose"]){[NSDistributedNotificationCenter.defaultCenter postNotificationName:@"local.headless-display.choose" object:nil userInfo:nil deliverImmediately:YES];return 0;}

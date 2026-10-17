@@ -52,3 +52,11 @@ clang++ -fobjc-arc -framework Foundation tools/native-display-probe.mm -o /tmp/n
 ```
 
 It loads frameworks, lists matching runtime classes and method encodings, and prints discovered device models and reality-device flags. It does not initiate connections, use Accessibility, or inject into another process. Runtime selector presence is evidence of an available interface, not proof that a connection request is authorized or functional.
+
+## Experimental native connection branch
+
+`--native-vision` waits up to 25 seconds for a reality-device record from Sidecar's private relay and calls `SidecarDisplayManager.connectToDevice:completion:` directly. It does not use Accessibility or fall back to AirPlay. Headset sessions are kept out of the iPad's CoreGraphics mirror configuration; connection reporting requires a Sidecar connected-device record and an online display ID.
+
+The branch builds and its missing-device path returns exit code 4 without attempting a connection. Physical Vision Pro connection remains unverified: the relay supplied no headset record during testing, including after a headset radio refresh and a Mac Rapport restart. The iPad remained discoverable. The receiving-manager state query returned `SidecarRelayNullDelegate` error -999 on this Mac; direct Rapport client activation returned missing-entitlement error -71168 for `com.apple.CompanionLink`.
+
+Control Center disassembly on macOS 26.5.1 shows its virtual-display switch disabling AirPlay when needed and enabling its Sidecar representation. This supports the private Sidecar direction, but does not substitute for a successful physical-device test.
