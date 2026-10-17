@@ -69,3 +69,31 @@ static BOOL connectAirplay(NSString *name){
  }
  closeDisplayMenu(info);speak([name stringByAppendingString:@" is no longer available. Open the chooser again."]);return NO;
 }
+
+// Retain the existing AirPlay bridge; only checked receiver rows may be toggled.
+static BOOL disconnectAirplay(void){
+ if(!AXIsProcessTrusted()){speak(@"No native display is connected. AirPlay disconnect needs the existing Accessibility permission.");return NO;}
+ NSDictionary *info=displayMenu();if(!info){speak(@"I could not inspect the AirPlay connection.");return NO;}
+ NSMutableOrderedSet<NSString*> *active=[NSMutableOrderedSet orderedSet];
+ for(id item in axTree(info[@"menu"]))if([axString(item,CFSTR("AXIdentifier"))isEqualToString:@"airplayvideo"]&&axString(item,CFSTR("AXMenuItemMarkChar")).length){NSString *name=menuDeviceName(item);if(name.length)[active addObject:name];}
+ closeDisplayMenu(info);
+ if(!active.count){speak(@"No mirroring display is connected.");return YES;}
+ for(NSString *name in active){
+  info=displayMenu();BOOL pressed=NO;
+  for(id item in axTree(info[@"menu"])){
+   if(![axString(item,CFSTR("AXIdentifier"))isEqualToString:@"airplayvideo"]||[menuDeviceName(item)caseInsensitiveCompare:name]!=NSOrderedSame)continue;
+   if(axString(item,CFSTR("AXMenuItemMarkChar")).length)pressed=axPress(item);
+   break;
+  }
+  closeDisplayMenu(info);
+  if(!pressed){speak(@"The AirPlay connection changed. I did not toggle an unselected device.");return NO;}
+  BOOL stillConnected=YES;
+  for(int retry=0;retry<20;retry++){
+   pump(.3);info=displayMenu();if(!info)break;stillConnected=airplayConnected(name);
+   for(id item in axTree(info[@"menu"]))if([axString(item,CFSTR("AXIdentifier"))isEqualToString:@"airplayvideo"]&&[menuDeviceName(item)caseInsensitiveCompare:name]==NSOrderedSame&&axString(item,CFSTR("AXMenuItemMarkChar")).length)stillConnected=YES;
+   closeDisplayMenu(info);if(!stillConnected)break;
+  }
+  if(stillConnected){speak(@"I could not confirm that AirPlay disconnected.");return NO;}
+ }
+ speak(@"Display disconnected.");return YES;
+}
